@@ -1,0 +1,40 @@
+{
+  "name": "pharmacy-records",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=20.19.0 <25",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n API,DESKTOP -c blue,green \"pnpm dev:api\" \"pnpm dev:desktop\"",
+    "dev:api": "pnpm --filter @pharmacy-records/api start:dev",
+    "dev:desktop": "pnpm --filter @pharmacy-records/desktop tauri:dev",
+    "dev:desktop:web": "pnpm --filter @pharmacy-records/desktop dev",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:generate": "pnpm --filter @pharmacy-records/api prisma:generate",
+    "db:migrate": "pnpm --filter @pharmacy-records/api prisma:migrate",
+    "db:seed": "pnpm --filter @pharmacy-records/api prisma:seed",
+    "db:studio": "pnpm --filter @pharmacy-records/api prisma:studio"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.6",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}

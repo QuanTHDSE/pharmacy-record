@@ -1,0 +1,8 @@
+node_modules
+dist
+build
+coverage
+apps/desktop/src-tauri/target
+.gitnexus
+.claude
+pnpm-lock.yaml

@@ -1,0 +1,231 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  PHARMACIST
+
+  @@map("user_role")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNKNOWN
+
+  @@map("gender_type")
+}
+
+enum DiseaseStatus {
+  ACTIVE
+  CHRONIC
+  RESOLVED
+
+  @@map("disease_status")
+}
+
+enum AllergyType {
+  MEDICATION
+  FOOD
+  ENVIRONMENT
+  OTHER
+
+  @@map("allergy_type")
+}
+
+enum AllergySeverity {
+  UNKNOWN
+  MILD
+  MODERATE
+  SEVERE
+
+  @@map("allergy_severity")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName     String   @map("full_name") @db.VarChar(150)
+  email        String   @unique(map: "users_email_key") @db.Citext
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  tokenVersion Int      @default(0) @map("token_version")
+  role         UserRole
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  medicalRecords                   MedicalRecord[]
+  patientDiseases                  PatientDisease[]
+  allergies                        Allergy[]
+  auditLogs                        AuditLog[]
+  uploadedMedicalRecordAttachments MedicalRecordAttachment[]
+
+  @@index([role, isActive], map: "users_role_is_active_idx")
+  @@index([fullName], map: "users_full_name_idx")
+  @@map("users")
+}
+
+model Patient {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientCode String    @unique(map: "patients_patient_code_key") @map("patient_code") @db.VarChar(30)
+  fullName    String    @map("full_name") @db.VarChar(150)
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  gender      Gender?
+  phone       String?   @db.VarChar(20)
+  address     String?
+  note        String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  medicalRecords  MedicalRecord[]
+  patientDiseases PatientDisease[]
+  allergies       Allergy[]
+
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "patients_phone_trgm_idx", where: { deletedAt: null })
+  @@index([createdAt(sort: Desc)], map: "patients_created_at_idx", where: { deletedAt: null })
+  @@index([phone], map: "patients_phone_idx", where: { deletedAt: null })
+  @@map("patients")
+}
+
+model MedicalRecord {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientId        String    @map("patient_id") @db.Uuid
+  recordedByUserId String    @map("recorded_by_user_id") @db.Uuid
+  recordedAt       DateTime  @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  title            String?   @db.VarChar(200)
+  chiefComplaint   String?   @map("chief_complaint")
+  clinicalNotes    String    @map("clinical_notes")
+  vitalSigns       Json?     @map("vital_signs") @db.JsonB
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  patient         Patient                   @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  recordedByUser  User                      @relation(fields: [recordedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  patientDiseases PatientDisease[]
+  allergies       Allergy[]
+  attachments     MedicalRecordAttachment[]
+
+  @@index([patientId, recordedAt(sort: Desc)], map: "medical_records_patient_recorded_at_idx", where: { deletedAt: null })
+  @@index([recordedByUserId], map: "medical_records_recorded_by_user_id_idx")
+  @@map("medical_records")
+}
+
+model MedicalRecordAttachment {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  medicalRecordId  String   @map("medical_record_id") @db.Uuid
+  uploadedByUserId String   @map("uploaded_by_user_id") @db.Uuid
+  originalName     String   @map("original_name") @db.VarChar(255)
+  storageKey       String   @unique(map: "medical_record_attachments_storage_key_key") @map("storage_key") @db.VarChar(500)
+  mimeType         String   @map("mime_type") @db.VarChar(100)
+  sizeBytes        Int      @map("size_bytes")
+  checksumSha256   String   @map("checksum_sha256") @db.Char(64)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  medicalRecord  MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  uploadedByUser User          @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([medicalRecordId, createdAt(sort: Desc)], map: "medical_record_attachments_record_created_at_idx")
+  @@index([uploadedByUserId], map: "medical_record_attachments_uploaded_by_user_id_idx")
+  @@map("medical_record_attachments")
+}
+
+model Disease {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String?  @unique(map: "diseases_code_key") @db.VarChar(30)
+  name        String   @unique(map: "diseases_name_key") @db.Citext
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  patientDiseases PatientDisease[]
+
+  @@index([isActive, name], map: "diseases_is_active_name_idx")
+  @@map("diseases")
+}
+
+model PatientDisease {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientId        String        @map("patient_id") @db.Uuid
+  diseaseId        String        @map("disease_id") @db.Uuid
+  medicalRecordId  String?       @map("medical_record_id") @db.Uuid
+  recordedByUserId String        @map("recorded_by_user_id") @db.Uuid
+  status           DiseaseStatus @default(ACTIVE)
+  diagnosedAt      DateTime?     @map("diagnosed_at") @db.Date
+  resolvedAt       DateTime?     @map("resolved_at") @db.Date
+  note             String?
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime?     @map("deleted_at") @db.Timestamptz(3)
+
+  patient        Patient        @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  disease        Disease        @relation(fields: [diseaseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  medicalRecord  MedicalRecord? @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  recordedByUser User           @relation(fields: [recordedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([patientId, diseaseId], map: "patient_diseases_patient_disease_key", where: { deletedAt: null })
+  @@index([patientId, status], map: "patient_diseases_patient_status_idx", where: { deletedAt: null })
+  @@index([diseaseId], map: "patient_diseases_disease_id_idx")
+  @@index([medicalRecordId], map: "patient_diseases_medical_record_id_idx")
+  @@index([recordedByUserId], map: "patient_diseases_recorded_by_user_id_idx")
+  @@map("patient_diseases")
+}
+
+model Allergy {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientId        String          @map("patient_id") @db.Uuid
+  medicalRecordId  String?         @map("medical_record_id") @db.Uuid
+  recordedByUserId String          @map("recorded_by_user_id") @db.Uuid
+  type             AllergyType     @default(OTHER)
+  allergenName     String          @map("allergen_name") @db.Citext
+  reaction         String?
+  severity         AllergySeverity @default(UNKNOWN)
+  recordedAt       DateTime        @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  note             String?
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(3)
+
+  patient        Patient        @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  medicalRecord  MedicalRecord? @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  recordedByUser User           @relation(fields: [recordedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([patientId, allergenName], map: "allergies_patient_allergen_key", where: { deletedAt: null })
+  @@index([patientId, severity], map: "allergies_patient_severity_idx", where: { deletedAt: null })
+  @@index([medicalRecordId], map: "allergies_medical_record_id_idx")
+  @@index([recordedByUserId], map: "allergies_recorded_by_user_id_idx")
+  @@map("allergies")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String?  @map("entity_id") @db.Uuid
+  oldValues   Json?    @map("old_values") @db.JsonB
+  newValues   Json?    @map("new_values") @db.JsonB
+  metadata    Json?    @db.JsonB
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent")
+  requestId   String?  @map("request_id") @db.Uuid
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([actorUserId, occurredAt(sort: Desc)], map: "audit_logs_actor_occurred_at_idx")
+  @@index([entityType, entityId, occurredAt(sort: Desc)], map: "audit_logs_entity_occurred_at_idx")
+  @@index([action, occurredAt(sort: Desc)], map: "audit_logs_action_occurred_at_idx")
+  @@index([occurredAt(sort: Desc)], map: "audit_logs_occurred_at_idx")
+  @@index([requestId], map: "audit_logs_request_id_idx", where: { requestId: { not: null } })
+  @@map("audit_logs")
+}
