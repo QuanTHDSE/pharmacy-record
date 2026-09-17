@@ -11,13 +11,13 @@ function requiredEnvironment(name: string): string {
 }
 
 async function seed(): Promise<void> {
-  const connectionString = requiredEnvironment('DATABASE_URL');
+  const connectionString = requiredEnvironment('DIRECT_URL');
   const email = requiredEnvironment('ADMIN_EMAIL').toLowerCase();
   const fullName = requiredEnvironment('ADMIN_FULL_NAME');
   const password = requiredEnvironment('ADMIN_PASSWORD');
 
-  if (password.length < 12) {
-    throw new Error('ADMIN_PASSWORD phải có ít nhất 12 ký tự.');
+  if (password.length < 8) {
+    throw new Error('ADMIN_PASSWORD phải có ít nhất 8 ký tự.');
   }
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });

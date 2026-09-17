@@ -8,6 +8,9 @@ export default defineConfig({
     seed: 'tsx prisma/seed.ts',
   },
   datasource: {
-    url: env('DATABASE_URL'),
+    // Prisma CLI commands (migrations, introspection and Studio) need a
+    // session-capable connection. The NestJS runtime continues to use the
+    // pooled DATABASE_URL through PrismaService.
+    url: env('DIRECT_URL'),
   },
 });

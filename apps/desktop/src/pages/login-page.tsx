@@ -105,7 +105,7 @@ export function LoginPage() {
                 <input
                   autoComplete="current-password"
                   className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-11 text-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
-                  minLength={12}
+                  minLength={8}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Nhập mật khẩu"
                   required

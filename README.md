@@ -80,6 +80,26 @@ pnpm db:seed
 Seed có thể chạy lại an toàn: nếu email đã tồn tại, tài khoản được kích hoạt và gán lại quyền
 `ADMIN`; mật khẩu hiện tại không bị ghi đè ngoài ý muốn.
 
+### Kết nối Supabase PostgreSQL
+
+Prisma sử dụng hai biến kết nối riêng khi chạy trên cloud:
+
+```dotenv
+# NestJS runtime: Supavisor transaction pooler
+DATABASE_URL="postgresql://postgres.<PROJECT_REF>:<URL_ENCODED_DATABASE_PASSWORD>@<POOLER_HOST>:6543/postgres?pgbouncer=true"
+
+# Prisma CLI và seed: Supavisor session pooler dành cho migration, introspection và Studio
+DIRECT_URL="postgresql://postgres.<PROJECT_REF>:<URL_ENCODED_DATABASE_PASSWORD>@<POOLER_HOST>:5432/postgres"
+```
+
+Không commit mật khẩu database. Trên Railway, khai báo cả `DATABASE_URL` và `DIRECT_URL` trong
+Variables. Mật khẩu chứa ký tự đặc biệt phải được URL-encode. Áp dụng các migration đã commit
+lên database cloud bằng:
+
+```powershell
+pnpm db:migrate:deploy
+```
+
 ## Phát triển API
 
 ```powershell

@@ -364,10 +364,10 @@ export function UsersPage() {
           {!editing && (
             <Input
               autoComplete="new-password"
-              hint="Tối thiểu 12 ký tự."
+              hint="Tối thiểu 8 ký tự."
               label="Mật khẩu ban đầu"
               maxLength={128}
-              minLength={12}
+              minLength={8}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
               required
               type="password"
@@ -430,7 +430,7 @@ export function UsersPage() {
             autoComplete="new-password"
             label="Mật khẩu mới"
             maxLength={128}
-            minLength={12}
+            minLength={8}
             onChange={(event) => setNewPassword(event.target.value)}
             required
             type="password"
