@@ -430,10 +430,9 @@ export function PatientRecordsTab({ patientId }: { patientId: string }) {
             />
           </div>
           <Textarea
-            label="Triệu chứng chính"
+            label="Ghi chú"
             maxLength={2000}
             onChange={(event) => setForm({ ...form, chiefComplaint: event.target.value })}
-            placeholder="Lý do đến khám…"
             value={form.chiefComplaint}
           />
           <fieldset className="rounded-xl border border-slate-200 p-4">
