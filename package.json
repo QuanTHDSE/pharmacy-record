@@ -13,6 +13,7 @@
     "dev:api": "pnpm --filter @pharmacy-records/api start:dev",
     "dev:desktop": "pnpm --filter @pharmacy-records/desktop tauri:dev",
     "dev:desktop:web": "pnpm --filter @pharmacy-records/desktop dev",
+    "dev:mobile": "pnpm --filter @pharmacy-records/shared build && pnpm --filter @pharmacy-records/mobile start",
     "build": "pnpm -r build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
