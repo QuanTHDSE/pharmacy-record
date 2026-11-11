@@ -1,0 +1,31 @@
+{
+  "name": "@pharmacy-records/mobile",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@pharmacy-records/shared": "workspace:*",
+    "expo": "~58.0.24",
+    "expo-font": "~58.0.12",
+    "expo-image-picker": "~58.0.10",
+    "expo-secure-store": "~58.0.3",
+    "expo-status-bar": "~58.0.5",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "~5.11.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "postinstall": "pnpm --dir ../.. --filter @pharmacy-records/shared build",
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit --pretty false",
+    "build": "expo export --platform android"
+  },
+  "private": true
+}

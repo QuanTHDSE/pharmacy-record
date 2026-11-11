@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Pharmacy Records",
+    "slug": "pharmacy-records-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.pharmacyrecords.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cho phép chọn ảnh hồ sơ y tế từ thư viện.",
+          "cameraPermission": "Cho phép chụp ảnh đơn thuốc và kết quả khám để lưu vào hồ sơ y tế."
+        }
+      ],
+      "expo-status-bar",
+      "expo-font"
+    ]
+  }
+}
