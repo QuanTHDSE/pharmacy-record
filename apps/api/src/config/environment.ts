@@ -5,6 +5,12 @@ const booleanString = z
   .default('true')
   .transform((value) => value === 'true');
 
+/** Chuỗi rỗng / chỉ có khoảng trắng → undefined, còn lại được trim. */
+const optionalString = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined),
+  z.string().min(1).optional(),
+);
+
 const environmentSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -28,13 +34,26 @@ const environmentSchema = z
     JWT_ISSUER: z.string().trim().min(1).default('pharmacy-records-api'),
     JWT_AUDIENCE: z.string().trim().min(1).default('pharmacy-records-desktop'),
     UPLOAD_DIR: z.string().trim().min(1).default('storage/medical-records'),
-    STORAGE_BACKEND: z.enum(['local', 'supabase']).default('local'),
+    // Chấp nhận " R2 ", "Supabase"… để tránh lỗi khởi động vì khác hoa/thường hoặc thừa khoảng trắng.
+    STORAGE_BACKEND: z.preprocess(
+      (value) => (typeof value === 'string' ? value.trim().toLowerCase() || undefined : value),
+      z.enum(['local', 'supabase', 'r2']).default('local'),
+    ),
     SUPABASE_URL: z.preprocess((value) => (value === '' ? undefined : value), z.url().optional()),
     SUPABASE_SECRET_KEY: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().min(1).optional(),
     ),
     SUPABASE_STORAGE_BUCKET: z.string().trim().min(1).default('medical-records'),
+    // Cloudflare R2 (S3-compatible). Cần R2_ACCOUNT_ID hoặc R2_ENDPOINT.
+    R2_ACCOUNT_ID: optionalString,
+    R2_ENDPOINT: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined),
+      z.url().optional(),
+    ),
+    R2_ACCESS_KEY_ID: optionalString,
+    R2_SECRET_ACCESS_KEY: optionalString,
+    R2_BUCKET: optionalString,
     MAX_IMAGE_UPLOAD_BYTES: z.coerce
       .number()
       .int()
@@ -43,20 +62,32 @@ const environmentSchema = z
       .default(10_485_760),
   })
   .superRefine((value, context) => {
-    if (value.STORAGE_BACKEND !== 'supabase') return;
-    if (!value.SUPABASE_URL) {
-      context.addIssue({
-        code: 'custom',
-        path: ['SUPABASE_URL'],
-        message: 'Bắt buộc khi STORAGE_BACKEND=supabase.',
-      });
+    const requireVar = (key: keyof typeof value, present: unknown) => {
+      if (!present) {
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `Bắt buộc khi STORAGE_BACKEND=${value.STORAGE_BACKEND}.`,
+        });
+      }
+    };
+
+    if (value.STORAGE_BACKEND === 'supabase') {
+      requireVar('SUPABASE_URL', value.SUPABASE_URL);
+      requireVar('SUPABASE_SECRET_KEY', value.SUPABASE_SECRET_KEY);
     }
-    if (!value.SUPABASE_SECRET_KEY) {
-      context.addIssue({
-        code: 'custom',
-        path: ['SUPABASE_SECRET_KEY'],
-        message: 'Bắt buộc khi STORAGE_BACKEND=supabase.',
-      });
+
+    if (value.STORAGE_BACKEND === 'r2') {
+      if (!value.R2_ACCOUNT_ID && !value.R2_ENDPOINT) {
+        context.addIssue({
+          code: 'custom',
+          path: ['R2_ACCOUNT_ID'],
+          message: 'Cần R2_ACCOUNT_ID hoặc R2_ENDPOINT khi STORAGE_BACKEND=r2.',
+        });
+      }
+      requireVar('R2_ACCESS_KEY_ID', value.R2_ACCESS_KEY_ID);
+      requireVar('R2_SECRET_ACCESS_KEY', value.R2_SECRET_ACCESS_KEY);
+      requireVar('R2_BUCKET', value.R2_BUCKET);
     }
   });
 

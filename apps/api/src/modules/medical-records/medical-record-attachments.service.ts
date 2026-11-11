@@ -7,6 +7,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
@@ -51,6 +57,8 @@ export class MedicalRecordAttachmentsService {
   private readonly storageBackend: Environment['STORAGE_BACKEND'];
   private readonly storageBucket: string;
   private readonly supabase: SupabaseClient | null;
+  private readonly r2: S3Client | null;
+  private readonly r2Bucket: string;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -70,6 +78,24 @@ export class MedicalRecordAttachmentsService {
             auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
           })
         : null;
+
+    // Cloudflare R2 dùng API tương thích S3; region luôn là "auto".
+    this.r2Bucket = config.get('R2_BUCKET', { infer: true }) ?? '';
+    if (this.storageBackend === 'r2') {
+      const accountId = config.get('R2_ACCOUNT_ID', { infer: true });
+      const endpoint =
+        config.get('R2_ENDPOINT', { infer: true }) ?? `https://${accountId}.r2.cloudflarestorage.com`;
+      this.r2 = new S3Client({
+        region: 'auto',
+        endpoint,
+        credentials: {
+          accessKeyId: config.get('R2_ACCESS_KEY_ID', { infer: true })!,
+          secretAccessKey: config.get('R2_SECRET_ACCESS_KEY', { infer: true })!,
+        },
+      });
+    } else {
+      this.r2 = null;
+    }
   }
 
   async findAll(recordId: string) {
@@ -265,6 +291,25 @@ export class MedicalRecordAttachmentsService {
       return;
     }
 
+    if (this.storageBackend === 'r2') {
+      try {
+        await this.r2!.send(
+          new PutObjectCommand({
+            Bucket: this.r2Bucket,
+            Key: image.storageKey,
+            Body: image.buffer,
+            ContentType: image.mimeType,
+          }),
+        );
+      } catch (error) {
+        this.logger.error(
+          `Không thể tải ảnh ${image.storageKey} lên Cloudflare R2: ${describeError(error)}`,
+        );
+        throw new ServiceUnavailableException('Không thể lưu ảnh vào kho lưu trữ.');
+      }
+      return;
+    }
+
     const { error } = await this.supabase!.storage.from(this.storageBucket).upload(
       image.storageKey,
       image.buffer,
@@ -291,6 +336,22 @@ export class MedicalRecordAttachmentsService {
       }
     }
 
+    if (this.storageBackend === 'r2') {
+      try {
+        const object = await this.r2!.send(
+          new GetObjectCommand({ Bucket: this.r2Bucket, Key: storageKey }),
+        );
+        if (!object.Body) throw new Error('Không có dữ liệu');
+        return Buffer.from(await object.Body.transformToByteArray());
+      } catch (error) {
+        if (isNotFound(error)) {
+          throw new NotFoundException('Tệp ảnh không còn tồn tại trong kho lưu trữ.');
+        }
+        this.logger.error(`Không thể đọc ảnh ${storageKey} từ Cloudflare R2: ${describeError(error)}`);
+        throw new ServiceUnavailableException('Không thể đọc ảnh từ kho lưu trữ.');
+      }
+    }
+
     const { data, error } = await this.supabase!.storage.from(this.storageBucket).download(
       storageKey,
     );
@@ -310,6 +371,11 @@ export class MedicalRecordAttachmentsService {
     const absolutePath = this.resolveStorageKey(storageKey);
     if (this.storageBackend === 'local') {
       await unlink(absolutePath);
+      return;
+    }
+    if (this.storageBackend === 'r2') {
+      // S3/R2 trả về thành công kể cả khi object không tồn tại.
+      await this.r2!.send(new DeleteObjectCommand({ Bucket: this.r2Bucket, Key: storageKey }));
       return;
     }
     const { error } = await this.supabase!.storage.from(this.storageBucket).remove([storageKey]);
@@ -347,4 +413,15 @@ export class MedicalRecordAttachmentsService {
     });
     if (!record) throw new NotFoundException('Không tìm thấy hồ sơ y tế.');
   }
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return 'Lỗi không xác định';
+}
+
+function isNotFound(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+  return error.name === 'NoSuchKey' || error.name === 'NotFound' || status === 404;
 }
