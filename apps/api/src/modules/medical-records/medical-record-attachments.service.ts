@@ -1,8 +1,16 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { ActionContext } from '../../common/types/action-context.js';
 import type { Environment } from '../../config/environment.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -29,7 +37,6 @@ interface DetectedImageType {
 interface PreparedImage {
   originalName: string;
   storageKey: string;
-  absolutePath: string;
   mimeType: string;
   sizeBytes: number;
   checksumSha256: string;
@@ -41,6 +48,9 @@ export class MedicalRecordAttachmentsService {
   private readonly logger = new Logger(MedicalRecordAttachmentsService.name);
   private readonly uploadRoot: string;
   private readonly maxImageBytes: number;
+  private readonly storageBackend: Environment['STORAGE_BACKEND'];
+  private readonly storageBucket: string;
+  private readonly supabase: SupabaseClient | null;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -50,6 +60,16 @@ export class MedicalRecordAttachmentsService {
     const configuredRoot = config.get('UPLOAD_DIR', { infer: true });
     this.uploadRoot = resolve(process.cwd(), configuredRoot);
     this.maxImageBytes = config.get('MAX_IMAGE_UPLOAD_BYTES', { infer: true });
+    this.storageBackend = config.get('STORAGE_BACKEND', { infer: true });
+    this.storageBucket = config.get('SUPABASE_STORAGE_BUCKET', { infer: true });
+    const supabaseUrl = config.get('SUPABASE_URL', { infer: true });
+    const supabaseKey = config.get('SUPABASE_SECRET_KEY', { infer: true });
+    this.supabase =
+      this.storageBackend === 'supabase' && supabaseUrl && supabaseKey
+        ? createClient(supabaseUrl, supabaseKey, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+          })
+        : null;
   }
 
   async findAll(recordId: string) {
@@ -73,11 +93,12 @@ export class MedicalRecordAttachmentsService {
     }
 
     const prepared = files.map((file) => this.prepareImage(recordId, file));
-    await mkdir(resolve(this.uploadRoot, recordId), { recursive: true });
+    const storedKeys: string[] = [];
 
     try {
       for (const image of prepared) {
-        await writeFile(image.absolutePath, image.buffer, { flag: 'wx' });
+        await this.storeImage(image);
+        storedKeys.push(image.storageKey);
       }
 
       return await this.prisma.$transaction(async (transaction) => {
@@ -119,7 +140,7 @@ export class MedicalRecordAttachmentsService {
         return created;
       });
     } catch (error) {
-      await Promise.allSettled(prepared.map((image) => unlink(image.absolutePath)));
+      await this.removeStoredFiles(storedKeys);
       throw error;
     }
   }
@@ -134,12 +155,7 @@ export class MedicalRecordAttachmentsService {
     });
     if (!attachment) throw new NotFoundException('Không tìm thấy ảnh đính kèm.');
 
-    const absolutePath = this.resolveStorageKey(attachment.storageKey);
-    try {
-      return { attachment, buffer: await readFile(absolutePath) };
-    } catch {
-      throw new NotFoundException('Tệp ảnh không còn tồn tại trong kho lưu trữ.');
-    }
+    return { attachment, buffer: await this.readStoredFile(attachment.storageKey) };
   }
 
   async remove(recordId: string, attachmentId: string, context: ActionContext) {
@@ -186,10 +202,13 @@ export class MedicalRecordAttachmentsService {
     await Promise.all(
       storageKeys.map(async (storageKey) => {
         try {
-          await unlink(this.resolveStorageKey(storageKey));
+          await this.deleteStoredFile(storageKey);
         } catch (error) {
           const code = error instanceof Error && 'code' in error ? String(error.code) : undefined;
-          if (code !== 'ENOENT') this.logger.warn(`Không thể xóa tệp ${storageKey}.`);
+          if (code !== 'ENOENT')
+            this.logger.warn(
+              `Không thể xóa tệp ${storageKey}: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`,
+            );
         }
       }),
     );
@@ -211,7 +230,6 @@ export class MedicalRecordAttachmentsService {
     return {
       originalName: this.safeOriginalName(file.originalname),
       storageKey,
-      absolutePath: this.resolveStorageKey(storageKey),
       mimeType: detectedType.mimeType,
       sizeBytes: file.size,
       checksumSha256: createHash('sha256').update(file.buffer).digest('hex'),
@@ -237,6 +255,65 @@ export class MedicalRecordAttachmentsService {
       throw new BadRequestException('Đường dẫn lưu trữ không hợp lệ.');
     }
     return absolutePath;
+  }
+
+  private async storeImage(image: PreparedImage): Promise<void> {
+    const absolutePath = this.resolveStorageKey(image.storageKey);
+    if (this.storageBackend === 'local') {
+      await mkdir(dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, image.buffer, { flag: 'wx' });
+      return;
+    }
+
+    const { error } = await this.supabase!.storage.from(this.storageBucket).upload(
+      image.storageKey,
+      image.buffer,
+      { contentType: image.mimeType, upsert: false },
+    );
+    if (error) {
+      this.logger.error(
+        `Không thể tải ảnh ${image.storageKey} lên Supabase Storage: ${error.message}`,
+      );
+      throw new ServiceUnavailableException('Không thể lưu ảnh vào kho lưu trữ.');
+    }
+  }
+
+  private async readStoredFile(storageKey: string): Promise<Buffer> {
+    const absolutePath = this.resolveStorageKey(storageKey);
+    if (this.storageBackend === 'local') {
+      try {
+        return await readFile(absolutePath);
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          throw new NotFoundException('Tệp ảnh không còn tồn tại trong kho lưu trữ.');
+        }
+        throw error;
+      }
+    }
+
+    const { data, error } = await this.supabase!.storage.from(this.storageBucket).download(
+      storageKey,
+    );
+    if (error || !data) {
+      if (error?.statusCode === '404') {
+        throw new NotFoundException('Tệp ảnh không còn tồn tại trong kho lưu trữ.');
+      }
+      this.logger.error(
+        `Không thể đọc ảnh ${storageKey} từ Supabase Storage: ${error?.message ?? 'Không có dữ liệu'}`,
+      );
+      throw new ServiceUnavailableException('Không thể đọc ảnh từ kho lưu trữ.');
+    }
+    return Buffer.from(await data.arrayBuffer());
+  }
+
+  private async deleteStoredFile(storageKey: string): Promise<void> {
+    const absolutePath = this.resolveStorageKey(storageKey);
+    if (this.storageBackend === 'local') {
+      await unlink(absolutePath);
+      return;
+    }
+    const { error } = await this.supabase!.storage.from(this.storageBucket).remove([storageKey]);
+    if (error) throw error;
   }
 
   private detectImageType(buffer: Buffer): DetectedImageType | null {
