@@ -8,6 +8,7 @@ Monorepo cho hệ thống hồ sơ nội bộ của nhà thuốc, sử dụng pn
 pharmacy-records/
 ├── apps/
 │   ├── desktop/       # Tauri + React + TypeScript + Vite
+│   ├── mobile/        # Expo + React Native + TypeScript
 │   └── api/           # NestJS + TypeScript + Prisma
 ├── packages/
 │   └── shared/        # Chỉ chứa TypeScript types và constants dùng chung
@@ -22,6 +23,9 @@ pharmacy-records/
 - pnpm 10 trở lên
 - Docker Desktop
 - Rust stable, Microsoft C++ Build Tools và WebView2 để chạy hoặc build Tauri trên Windows
+
+Để chạy bản mobile, cài Expo Go trên Android rồi chạy `pnpm dev:mobile`. Xem hướng dẫn
+chi tiết và cách build APK trong `apps/mobile/README.md`.
 
 ## Cài đặt
 
@@ -271,11 +275,33 @@ sàng. Khi tạo mới phải chọn ít nhất một ảnh. Hệ thống chấp
 mỗi ảnh, 10 ảnh mỗi lần tải và 20 ảnh cho một hồ sơ. API xác minh chữ ký thực của tệp, không chỉ
 dựa vào phần mở rộng hoặc MIME do trình duyệt gửi lên. Việc xem và xóa ảnh đều yêu cầu JWT.
 
-Ảnh được lưu ngoài PostgreSQL tại thư mục cấu hình bởi `UPLOAD_DIR` (mặc định
-`storage/medical-records`); cơ sở dữ liệu chỉ giữ metadata, checksum và quan hệ với hồ sơ/người
-tải. Thư mục này đã được bỏ qua bởi Git và cần được sao lưu cùng cơ sở dữ liệu. Khi triển khai
-nhiều API instance hoặc trên cloud, nên thay lớp lưu file cục bộ bằng Supabase Storage hoặc một
-object storage tương đương.
+Ảnh được lưu ngoài PostgreSQL; cơ sở dữ liệu chỉ giữ metadata, checksum và đường dẫn tương đối.
+Mặc định `STORAGE_BACKEND=local`, ảnh nằm trong `UPLOAD_DIR` (`storage/medical-records`) và
+cần được sao lưu riêng. Trên Render Free, dùng Supabase Storage để ảnh tồn tại qua các lần deploy:
+
+1. Trong Supabase Dashboard → Storage, tạo bucket **private** tên `medical-records`. Không bật
+   Public bucket. Giới hạn kích thước file của bucket phải ít nhất 10 MB; cho phép JPEG, PNG, WebP.
+2. Trong Render → API service → Environment, đặt `STORAGE_BACKEND=supabase`, `SUPABASE_URL`
+   (Project URL), `SUPABASE_SECRET_KEY` (server-side secret key) và
+   `SUPABASE_STORAGE_BUCKET=medical-records`. Secret key chỉ ở backend; không đặt trong Vercel,
+   Expo, Tauri hoặc commit vào Git. `UPLOAD_DIR` không còn được dùng khi chọn Supabase.
+3. Redeploy API rồi thử tải lên, xem và xóa một ảnh. FE/mobile tiếp tục dùng endpoint API cũ;
+   bucket vẫn private, không cần URL public hay chính sách truy cập từ frontend.
+
+Để giữ ảnh cũ, cần lấy bản sao nội dung Railway Volume tại `/app/storage/medical-records`
+(hoặc thư mục `UPLOAD_DIR` cũ) về máy, giữ cấu trúc `recordId/ten-file.jpg`. Sau khi đặt
+`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_STORAGE_BUCKET` trong môi trường máy cục bộ,
+chạy từ thư mục gốc repo:
+
+```powershell
+pnpm --filter @pharmacy-records/api storage:migrate -- "D:\duong-dan\medical-records"
+```
+
+Lệnh này không xóa file nguồn, không ghi đè object có sẵn và kiểm tra SHA-256 sau khi tải.
+Nếu có lỗi, sửa nguyên nhân rồi chạy lại. Chỉ chuyển các file còn tồn tại trong thư mục nguồn;
+file đã mất trên Railway Volume/Render không thể khôi phục bằng cách đổi backend lưu trữ.
+Chuyển ảnh cũ **trước khi** đổi Render sang `STORAGE_BACKEND=supabase` để tránh ảnh hiện tại tạm
+thời không xem được.
 
 ## Audit logs
 
