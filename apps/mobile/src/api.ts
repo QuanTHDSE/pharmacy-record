@@ -48,8 +48,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/v1${path}`, { ...init, headers });
-  } catch {
-    throw new ApiError('Không thể kết nối máy chủ. Hãy kiểm tra Internet và API.', 0);
+  } catch (caught) {
+    // Giữ lại lỗi gốc để không che mất nguyên nhân thật (ví dụ lỗi tạo FormData).
+    const detail = caught instanceof Error && caught.message ? ` (${caught.message})` : '';
+    throw new ApiError(`Không thể kết nối máy chủ. Hãy kiểm tra Internet và API.${detail}`, 0);
   }
 
   if (response.status === 401 && accessToken) unauthorizedHandler?.();
