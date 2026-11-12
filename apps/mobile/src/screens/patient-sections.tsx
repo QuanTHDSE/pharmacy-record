@@ -1,11 +1,12 @@
 import { ALLERGY_SEVERITIES, ALLERGY_TYPES, DISEASE_STATUSES } from '@pharmacy-records/shared';
 import type { AllergySeverity, AllergyType, DiseaseStatus } from '@pharmacy-records/shared';
+// expo-image gửi header Authorization ổn định trên cả Android lẫn iOS (Image gốc của RN thì không).
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -97,6 +98,8 @@ function attachmentSource(recordId: string, attachmentId: string) {
   return {
     uri: attachmentUrl(recordId, attachmentId),
     headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+    // Ảnh không đổi sau khi tải lên → cache theo id, không phụ thuộc token.
+    cacheKey: `attachment-${attachmentId}`,
   };
 }
 
@@ -221,7 +224,13 @@ function RecordCard({
               onPress={() => onOpenImage(index)}
               style={({ pressed }) => pressed && sectionStyles.pressed}
             >
-              <Image source={attachmentSource(record.id, attachment.id)} style={sectionStyles.thumb} />
+              <Image
+                source={attachmentSource(record.id, attachment.id)}
+                style={sectionStyles.thumb}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={150}
+              />
             </Pressable>
           ))}
         </ScrollView>
@@ -260,7 +269,8 @@ function ImageViewer({
               <Image
                 source={attachmentSource(record.id, item.id)}
                 style={{ width, height }}
-                resizeMode="contain"
+                contentFit="contain"
+                cachePolicy="memory-disk"
               />
             )}
           />
