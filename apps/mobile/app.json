@@ -34,6 +34,12 @@
       "expo-status-bar",
       "expo-font",
       "expo-image"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6ca9f1c3-a0cf-4aaf-8560-b124770b1037"
+      }
+    },
+    "owner": "casilo"
   }
 }
